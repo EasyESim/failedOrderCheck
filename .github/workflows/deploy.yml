@@ -1,0 +1,96 @@
+name: Deploy Lambda
+on:
+  push:
+    branches:
+      - main
+jobs:
+  build-source:
+    name: Build Lambda
+    strategy:
+      matrix:
+        python-version: [3.10.12]
+        aws_region: [eu-west-2]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Set up Python ${{ matrix.python-version }}.
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff pytest
+          if [ -f requirements.txt ]; then pip install -r requirements.txt -t ./dependencies;  fi
+        env:
+          CI: true
+      - name: Upload Artefact
+        uses: actions/upload-artifact@v3.1.2
+        with:
+          name: bundle.zip
+          path: |
+            ./
+            !./dependencies
+          if-no-files-found: error
+      - name: Bundle Dependencies
+        uses: montudor/action-zip@v1.0.0
+        with:
+          args: zip -qq -r ./dependencies.zip ./dependencies
+      - name: AWS Lambda Layer Publish
+        uses: taotao2345/aws-lambda-publishlayer@v1.0.0
+        env:
+          AWS_REGION: ${{ matrix.aws_region }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        with:
+          layer_name: python-layer
+          zip_file: dependencies.zip
+  deploy-source:
+    name: deploy lambda
+    needs: build-source
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        python-version: [3.10.12]
+        aws_region: [eu-west-2]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Bundle
+        id: download
+        uses: actions/download-artifact@v3
+        with:
+          name: bundle.zip
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: "0"
+      - name: Bump version and push tag
+        id: tag
+        uses: anothrNick/github-tag-action@1.67.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WITH_V: true
+          PRERELEASE: false
+          DEFAULT_BUMP: patch
+      - name: Bundle
+        uses: montudor/action-zip@v1.0.0
+        with:
+          args: zip -qq -r ./bundle.zip ./
+      - name: Update layers
+        uses: callummackenzie/latest-lambda-layer-action@v0.12
+        with:
+          aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws_region: ${{ matrix.aws_region }}
+          function_name: python-failed-order-layer
+      - name: Deploy
+        uses: appleboy/lambda-action@v0.1.9
+        with:
+          aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws_region: ${{ matrix.aws_region }}
+          function_name: eSIM_failed_order_handler
+          zip_file: bundle.zip
+          description: ${{steps.tag.outputs.tag}}

@@ -1,0 +1,35 @@
+name: Build Lambda
+on: [pull_request]
+jobs:
+  build-source:
+    name: Build
+    strategy:
+      matrix:
+        python-version: [3.10.12]
+        aws_region: [eu-west-2]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff pytest
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        env:
+          CI: true
+      - name: Bundle
+        uses: montudor/action-zip@v1.0.0
+        with:
+          args: zip -qq -r ./bundle.zip ./
+      - name: Archive Bundle
+        uses: actions/upload-artifact@v3.1.2
+        with:
+          name: bundle
+          path: bundle.zip
+          retention-days: 1
