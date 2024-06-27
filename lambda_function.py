@@ -1,4 +1,4 @@
-import datetime
+from datetime import datetime
 import logging
 from dynamo_client import DynamoClient
 from esim_go_client import EsimGoClient
@@ -14,21 +14,24 @@ def lambda_handler(event, context):
     esim_client = EsimGoClient()
 
     # Specify the start date
-    start_date = datetime.datetime(2024, 6, 22).strftime('%Y-%m-%d')
-
-    # Scan for orders with specific failed statuses and from the specified start date
-    response = dynamo_client.scan_orders_with_failed_statuses(start_date, [
+    start_date = datetime(2024, 6, 22).strftime('%Y-%m-%d')
+    
+    # Specify the list of statuses to scan for
+    failed_statuses = [
         'esim_order_creation_failed', 
         'dynamodb_esim_order_creation_failed', 
         'esim_details_retrieval_failed', 
         'esim_qrcode_retrieval_failed', 
         'dynamodb_qrcode_retrieval_failed', 
         'dynamodb_esim_details_retrieval_failed'
-    ])
+    ]
+    
+    # Scan for orders with specific failed statuses and from the specified start date
+    response = dynamo_client.scan_orders_with_failed_statuses(start_date, failed_statuses)
 
-    for order in response['Items']:
-        order_id = order['OrderId']
-        current_status = order['Status']
+    for order in response:
+        order_id = order['order_id']
+        current_status = order['order_status']
         
         logger.info("Processing order: %s with status: %s", order_id, current_status)
 

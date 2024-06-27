@@ -1,5 +1,5 @@
 import boto3
-from boto3.dynamodb.conditions import Key
+from boto3.dynamodb.conditions import Key, Attr
 from decimal import Decimal
 from datetime import datetime, timezone
 import json
@@ -130,3 +130,14 @@ class DynamoClient:
         )
         logger.info("Update order status response: %s", response)
         return response
+
+    def scan_orders_with_failed_statuses(self, start_date, statuses):
+        # Convert the list of statuses into a condition for filtering
+        filter_expression = Attr('order_status').is_in(statuses) & Attr('upserted_at').gte(start_date)
+
+        response = self.order_table.scan(
+            FilterExpression=filter_expression
+        )
+
+        logger.info("Scan orders with failed statuses response: %s", response)
+        return response['Items']
