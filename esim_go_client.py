@@ -18,7 +18,7 @@ class EsimGoClient:
         self.s3_bucket_name = 'esim-qrcode'
 
     def new_order(self, order):
-        url = 'https://api.esim-go.com/v2.2/orders'
+        url = 'https://api.esim-go.com/v2.3/orders'
         order_items_payload = []
 
         for order_item in order.order_items:
@@ -51,7 +51,7 @@ class EsimGoClient:
                     raise
 
     def get_esim_details(self, order_reference):
-        url = "https://api.esim-go.com/v2.2/esims/assignments?reference=" + order_reference
+        url = "https://api.esim-go.com/v2.3/esims/assignments?reference=" + order_reference
         payload = {}
         headers = {"X-API-Key": self.auth_key, 'Accept': 'application/json'}
         http = urllib3.PoolManager()
@@ -70,7 +70,8 @@ class EsimGoClient:
                     raise
 
     def get_esim_qrcode(self, order_reference):
-        url = "https://api.esim-go.com/v2.2/esims/assignments?reference=" + order_reference
+        logger.info("Getting QR code from ESIM:%s", order_reference)
+        url = "https://api.esim-go.com/v2.3/esims/assignments?reference=" + order_reference
         payload = {}
         headers = {"X-API-Key": self.auth_key, 'Accept': 'application/zip'}
         http = urllib3.PoolManager()
@@ -81,6 +82,7 @@ class EsimGoClient:
                 if response.status == 200:
                     zip_buffer = response.data
                     image_data_list = []
+                    logger.info("Response is 200")
                     with zipfile.ZipFile(io.BytesIO(zip_buffer), 'r') as zip_file:
                         for file_info in zip_file.infolist():
                             if file_info.filename.lower().endswith('.png'):
