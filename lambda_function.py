@@ -1,4 +1,4 @@
-import datetime
+from datetime import datetime
 import logging
 from dynamo_client import DynamoClient
 from esim_go_client import EsimGoClient
@@ -13,73 +13,84 @@ def lambda_handler(event, context):
     email_client = EmailClient()
     esim_client = EsimGoClient()
 
-    # Specify the start date
-    start_date = datetime.datetime(2024, 6, 22).strftime('%Y-%m-%d')
-
-    # Scan for orders with specific failed statuses and from the specified start date
-    response = dynamo_client.scan_orders_with_failed_statuses(start_date, [
+    start_date = datetime(2024, 6, 22).strftime('%Y-%m-%d')
+    failed_statuses = [
         'esim_order_creation_failed', 
         'dynamodb_esim_order_creation_failed', 
         'esim_details_retrieval_failed', 
         'esim_qrcode_retrieval_failed', 
         'dynamodb_qrcode_retrieval_failed', 
-        'dynamodb_esim_details_retrieval_failed'
-    ])
+        'dynamodb_esim_details_retrieval_failed',
+        'qrcode_data_not_found'
+    ]
+    
+    response = dynamo_client.scan_orders_with_failed_statuses(start_date, failed_statuses)
 
-    for order in response['Items']:
-        order_id = order['OrderId']
-        current_status = order['Status']
-        
+    for order in response:
+        order_id = order['order_id']
+        current_status = order['order_status']
+        esim_order_details_from_db = dynamo_client.get_esim_details_from_db_using_order_ref_id(order_id)
         logger.info("Processing order: %s with status: %s", order_id, current_status)
 
-        if current_status == 'esim_order_creation_failed':
-            esim_order_details = esim_client.new_order(order)
-            if not esim_order_details:
-                logger.error("Failed to generate a new order in EsimGo: %s", str(order))
-                dynamo_client.update_order_status(order_id, "esim_order_creation_failed")
-                continue
-            else:
-                dynamo_client.update_order_status(order_id, "esim_order_created")
+        # Initialize qr_codes to avoid the 'referenced before assignment' error
+        qr_codes = None
 
-        if current_status in ['esim_order_creation_failed', 'esim_order_created', 'dynamodb_esim_order_creation_failed']:
-            order_id = dynamo_client.put_esim_order(esim_order_details, order)
-            if not order_id:
-                logger.error("Failed to generate a new order: %s", str(esim_order_details))
-                dynamo_client.update_order_status(order_id, "dynamodb_esim_order_creation_failed")
-                continue
-            else:
-                dynamo_client.update_order_status(order_id, "esim_order_saved")
+        try:
+            if current_status == 'esim_order_creation_failed':
+                esim_order_details = esim_client.new_order(order)
+                if not esim_order_details:
+                    raise Exception("Failed to generate a new order in EsimGo")
+                else:
+                    logger.info("esim_order_created")
+                    dynamo_client.update_order_status(order_id, "esim_order_created")
 
-        if current_status in ['esim_order_creation_failed', 'esim_order_created', 'dynamodb_esim_order_creation_failed', 'esim_order_saved']:
-            esim_order_details = esim_client.get_esim_details(order_id)
-            if not esim_order_details:
-                logger.error("Failed to get eSIM details: %s", str(esim_order_details))
-                dynamo_client.update_order_status(order_id, "esim_details_retrieval_failed")
-                continue
-            else:
-                dynamo_client.update_esim_order(order_id, esim_order_details, order['line_items'])
+            if current_status in ['esim_order_creation_failed', 'dynamodb_esim_order_creation_failed']:
+                esim_order_details = esim_client.new_order(order)
+                order_id = dynamo_client.put_esim_order(esim_order_details, order)
+                if not order_id:
+                    raise Exception("Failed to generate a new order in DynamoDB")
+                else:
+                    logger.info("esim_order_saved")
+                    dynamo_client.update_order_status(order_id, "esim_order_saved")
 
-        if current_status in ['esim_order_creation_failed', 'esim_order_created', 'dynamodb_esim_order_creation_failed', 'esim_order_saved', 'esim_details_retrieval_failed']:
-            image_data = esim_client.get_esim_qrcode(order_id)
-            if not image_data:
-                logger.error("Failed to get eSIM QR code details: %s", str(esim_order_details))
-                dynamo_client.update_order_status(order_id, "esim_qrcode_retrieval_failed")
-                continue
-            else:
-                dynamo_client.update_esim_qr_code(order_id, image_data)
+            if current_status in ['esim_order_creation_failed', 'dynamodb_esim_order_creation_failed', 'esim_details_retrieval_failed', 'dynamodb_esim_details_retrieval_failed']:
+                esim_order_details = esim_client.get_esim_details(esim_order_details_from_db['esim_order_id'])
+                if not esim_order_details:
+                    raise Exception("Failed to get eSIM details from EsimGo")
+                else:
+                    logger.info("esim_details_retrieved")
+                    dynamo_client.update_order_status(order_id, "esim_details_retrieved")
+            
+            if current_status in ['esim_order_creation_failed', 'dynamodb_esim_order_creation_failed', 'esim_details_retrieval_failed', 'esim_qrcode_retrieval_failed', 'dynamodb_qrcode_retrieval_failed']:
+                qr_codes = esim_client.get_esim_qrcode(esim_order_details_from_db['esim_order_id'])
+                if not qr_codes:
+                    raise Exception("Failed to retrieve QR code from EsimGo")
+                else:
+                    logger.info("esim_qrcode_retrieved")
+                    dynamo_client.update_order_status(order_id, "esim_qrcode_retrieved")
 
-        if current_status in ['esim_order_creation_failed', 'esim_order_created', 'dynamodb_esim_order_creation_failed', 'esim_order_saved', 'esim_details_retrieval_failed', 'esim_qrcode_retrieval_failed']:
-            qr_codes = dynamo_client.get_qr_code_from_db(order_id)
-            if not qr_codes:
-                logger.error("Failed to get QR codes from the database: %s", str(qr_codes))
-                dynamo_client.update_order_status(order_id, "dynamodb_qrcode_retrieval_failed")
-                continue
+            if current_status in ['esim_order_creation_failed', 'dynamodb_esim_order_creation_failed', 'esim_details_retrieval_failed', 'dynamodb_esim_details_retrieval_failed', 'esim_qrcode_retrieval_failed', 'qrcode_data_not_found']:
+                result = dynamo_client.update_esim_qr_code(esim_order_details_from_db['esim_order_id'], qr_codes)
+                if not result:
+                    raise Exception("Failed to update QR code in DynamoDB")
+                else:
+                    logger.info("dynamodb_qrcode_retrieved")
+                    dynamo_client.update_order_status(order_id, "dynamodb_qrcode_retrieved")
 
-            esim_details = dynamo_client.get_esim_from_db(order_id)
-            if not esim_details:
-                logger.error("Failed to get eSIM details from the database: %s", str(esim_details))
-                dynamo_client.update_order_status(order_id, "dynamodb_esim_details_retrieval_failed")
-                continue
+            if current_status in ['esim_order_creation_failed', 'dynamodb_esim_order_creation_failed', 'esim_details_retrieval_failed', 'dynamodb_esim_details_retrieval_failed', 'esim_qrcode_retrieval_failed', 'qrcode_data_not_found']:
+                result = email_client.send_email_with_qr_code(esim_order_details_from_db['email_id'], qr_codes, esim_order_details_from_db['esim_details'], esim_order_details_from_db['shopify_order_id'])
+                if not result:
+                    raise Exception("Failed to send email with QR codes")
+                else:
+                    logger.info("email_sent")
+                    dynamo_client.update_order_status(order_id, "email_sent")
 
-            email_client.send_email_with_qr_code(order['contact_email'], qr_codes, esim_details, order['order_number'])
-            dynamo_client.update_order_status(order_id, "email_sent")
+        except Exception as e:
+            logger.error("Error processing order %s: %s", order_id, str(e))
+            if current_status not in ['email_sent']:
+                dynamo_client.update_order_status(order_id, current_status)
+
+    return {
+        'statusCode': 200,
+        'body': 'Processing completed'
+    }

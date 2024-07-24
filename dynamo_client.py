@@ -1,5 +1,5 @@
 import boto3
-from boto3.dynamodb.conditions import Key
+from boto3.dynamodb.conditions import Key, Attr
 from decimal import Decimal
 from datetime import datetime, timezone
 import json
@@ -11,10 +11,11 @@ logger.setLevel(logging.INFO)
 
 class DynamoClient:
     def __init__(self):
-        client = boto3.resource('dynamodb')
-        self.order_table = client.Table("order")
-        self.cust_table = client.Table("customer")
-        self.esim_table = client.Table("esim_details")
+        self.dynamodb = boto3.resource('dynamodb')
+        self.dynamodb_client = boto3.client('dynamodb')
+        self.order_table = self.dynamodb.Table("order")
+        self.cust_table = self.dynamodb.Table("customer")
+        self.esim_table = self.dynamodb.Table("esim_details")
 
     def get_customers(self, source_customer_id):
         response = self.cust_table.query(
@@ -130,3 +131,43 @@ class DynamoClient:
         )
         logger.info("Update order status response: %s", response)
         return response
+
+    def scan_orders_with_failed_statuses(self, start_date, statuses):
+        # Convert the list of statuses into a condition for filtering
+        filter_expression = Attr('order_status').is_in(statuses) & Attr('upserted_at').gte(start_date)
+
+        response = self.order_table.scan(
+            FilterExpression=filter_expression
+        )
+
+        logger.info("Scan orders with failed statuses response: %s", response)
+        return response['Items']
+
+    def get_esim_details_from_db_using_order_ref_id(self, order_ref_id):
+        try:
+            # Get the table description using the DynamoDB client
+            table_description = self.dynamodb_client.describe_table(TableName=self.esim_table.name)
+            index_names = [index['IndexName'] for index in table_description.get('Table', {}).get('GlobalSecondaryIndexes', [])]
+
+            if 'order_table_ref_id-index' in index_names:
+                response = self.esim_table.query(
+                    IndexName='order_table_ref_id-index',
+                    KeyConditionExpression=Key('order_table_ref_id').eq(order_ref_id)
+                )
+            else:
+                # If index does not exist, scan the table with a filter expression
+                response = self.esim_table.scan(
+                    FilterExpression=Attr('order_table_ref_id').eq(order_ref_id)
+                )
+
+            logger.info("Get eSIM details from DB using order ref ID response: %s", response)
+            if response['Items']:
+                esim_order_id = response['Items'][0]['esim_order_id']
+                response = self.esim_table.get_item(
+                    Key={'esim_order_id': esim_order_id}
+                )
+                if 'Item' in response:
+                    return response['Item']
+        except Exception as e:
+            logger.error("Error getting eSIM details from DB using order ref ID: %s", str(e))
+        return None
