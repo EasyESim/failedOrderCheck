@@ -18,7 +18,6 @@ class EmailClient:
             # Iterate through the list of image data dictionaries
             for index, image_data in enumerate(qr_code_binary):
                 image_name = image_data['image_name']
-                image_url = image_data['image_url']
                 
                 # Generate a subject based on the number of QR codes
                 if len(qr_code_binary) > 1:
@@ -52,6 +51,7 @@ class EmailClient:
                         "personalizations": [
                             {
                                 "to": [{"email": email_to}],
+                                "bcc": [{"email": "esimdetails@easyesim.co"}], 
                                 "subject": subject
                             }
                         ],
@@ -81,11 +81,15 @@ class EmailClient:
 
                     if response.status == 202:
                         print(f"Email sent successfully with status code: {response.status}")
+                        return True
                     else:
                         print(f"Email sending failed with status code: {response.status}")
+                        return False
 
                 except ParamValidationError as e:
                     print(f"Skipping invalid image data: {str(e)}")
+                    return False
 
         except Exception as e:
             print(f"Error sending email: {str(e)}")
+            return False
