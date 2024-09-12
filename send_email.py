@@ -38,10 +38,20 @@ class EmailClient:
                         email_template = template_file.read()
 
                     parts = bundle.split('_')
+                    
+                    # Check if the bundle contains 'esim_UL_'
+                    if 'esim_UL_' in bundle:
+                        days = parts[2][:-1]  # This strips the last character assuming it's always 'D' for 'Day'
+                        if days.isdigit():  # Ensure that the extracted part is a digit
+                            formatted_bundle = f"Unlimited - {days} Day{'s' if int(days) > 1 else ''}"
+                        else:
+                            formatted_bundle = "Unlimited"
+                    else:
+                        formatted_bundle = parts[1] if len(parts) > 1 else bundle
 
                     # Format the template with the dynamic URL
                     email_template = email_template.replace('{{esim_title}}', esim_title)
-                    email_template = email_template.replace('{{bundle}}', parts[1])
+                    email_template = email_template.replace('{{bundle}}', formatted_bundle)
                     email_template = email_template.replace('{{qr_code_url}}', qr_code_url)
                     email_template = email_template.replace('{{matchingId}}', matchingId)
                     email_template = email_template.replace('{{rspUrl}}', rspUrl)
