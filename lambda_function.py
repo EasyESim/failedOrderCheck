@@ -21,7 +21,8 @@ def lambda_handler(event, context):
         'esim_qrcode_retrieval_failed', 
         'dynamodb_qrcode_retrieval_failed', 
         'dynamodb_esim_details_retrieval_failed',
-        'qrcode_data_not_found'
+        'qrcode_data_not_found',
+         'email_sent_and_update_esim_ref_failed'
     ]
     
     response = dynamo_client.scan_orders_with_failed_statuses(start_date, failed_statuses)
@@ -110,6 +111,20 @@ def lambda_handler(event, context):
                     logger.info("email_sent")
                     esim_client.update_esim(esim_order_details_from_db['esim_details'], esim_order_details_from_db['shopify_order_id'])
                     dynamo_client.update_order_status(order_id, "email_sent")
+                    logger.info("Process Done")
+                    logger.info("============================")
+            
+            if current_status == 'email_sent_and_update_esim_ref_failed':
+                logger.info("============================")
+                logger.info("Processing Step 7")
+
+                # Retry updating the eSIM reference
+                update_success = esim_client.update_esim(esim_order_details_from_db['esim_details'], esim_order_details_from_db['shopify_order_id'])
+                if not update_success:
+                    raise Exception("Failed to update eSIM reference again")
+                else:
+                    logger.info("eSIM reference updated successfully")
+                    dynamo_client.update_order_status(order_id, "esim_ref_updated")
                     logger.info("Process Done")
                     logger.info("============================")
 
