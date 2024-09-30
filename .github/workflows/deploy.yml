@@ -45,7 +45,7 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         with:
-          layer_name: python-layer
+          layer_name: failed-lambda-layer
           zip_file: dependencies.zip
   deploy-source:
     name: deploy lambda
@@ -84,13 +84,13 @@ jobs:
           aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws_region: ${{ matrix.aws_region }}
-          function_name: python-failed-order-layer
+          function_name: failedOrderCheck
       - name: Deploy
         uses: appleboy/lambda-action@v0.1.9
         with:
           aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws_region: ${{ matrix.aws_region }}
-          function_name: eSIM_failed_order_handler
+          function_name: failedOrderCheck
           zip_file: bundle.zip
           description: ${{steps.tag.outputs.tag}}
