@@ -4,6 +4,12 @@ import urllib3
 from botocore.exceptions import ParamValidationError
 import boto3
 
+import logging
+
+# Initialize logger
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
 class EmailClient:
     def __init__(self):
         self.api_key = os.environ['SEND_GRID_API_KEY']
@@ -14,10 +20,12 @@ class EmailClient:
         try:
             # Create an instance of urllib3 PoolManager
             http = urllib3.PoolManager()
+            all_success = True  # Track if all emails were successfully sent
             
             # Iterate through the list of image data dictionaries
             for index, image_data in enumerate(qr_code_binary):
                 image_name = image_data['image_name']
+                image_url = image_data['image_url']
                 
                 # Generate a subject based on the number of QR codes
                 if len(qr_code_binary) > 1:
@@ -48,6 +56,7 @@ class EmailClient:
                             formatted_bundle = "Unlimited"
                     else:
                         formatted_bundle = parts[1] if len(parts) > 1 else bundle
+
 
                     # Format the template with the dynamic URL
                     email_template = email_template.replace('{{esim_title}}', esim_title)
@@ -90,16 +99,20 @@ class EmailClient:
                     )
 
                     if response.status == 202:
-                        print(f"Email sent successfully with status code: {response.status}")
-                        return True
+                        # print(f"Email sent successfully with status code: {response.status}")
+                        logger.info(f"QR code email sent successfully with status code: {response.status}")
                     else:
-                        print(f"Email sending failed with status code: {response.status}")
-                        return False
+                        # print(f"Email sending failed with status code: {response.status}")
+                        logger.error(f"QR code email sending failed with status code: {response.status}")
+                        all_success = False  # Mark as failed if any email fails
 
                 except ParamValidationError as e:
-                    print(f"Skipping invalid image data: {str(e)}")
-                    return False
+                    # print(f"Skipping invalid image data: {str(e)}")
+                    logger.error(f"Error sending QR code email: {str(e)}")
+                    all_success = False  # Mark as failed if any error occurs
 
+            return all_success  # Return True only if all emails were sent successfully
+        
         except Exception as e:
             print(f"Error sending email: {str(e)}")
             return False
